@@ -65,12 +65,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CACHE_APP_KEY: ${{ secrets.CACHE_APP_KEY }}
-          CERTBOT_EMAIL: ${{ secrets.CERTBOT_EMAIL }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: GITHUB_TOKEN,CACHE_APP_KEY,CERTBOT_EMAIL
+          envs: GITHUB_TOKEN,CACHE_APP_KEY
           script: |
             set -e
             echo "$GITHUB_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -127,4 +126,3 @@ jobs:
             sudo ln -sf /etc/nginx/sites-available/cache.zentto.net /etc/nginx/sites-enabled/cache.zentto.net
             sudo nginx -t
             sudo systemctl reload nginx
-            sudo certbot --nginx -n --agree-tos -m "$CERTBOT_EMAIL" -d cache.zentto.net --redirect || true
