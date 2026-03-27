@@ -64,12 +64,11 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CACHE_APP_KEY: ${{ secrets.CACHE_APP_KEY }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: GITHUB_TOKEN,CACHE_APP_KEY
+          envs: GITHUB_TOKEN
           script: |
             set -e
             echo "$GITHUB_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -96,7 +95,6 @@ jobs:
                   PORT: 4100
                   REDIS_URL: redis://redis:6379
                   TTL_DAYS: 90
-                  CACHE_APP_KEY: ${CACHE_APP_KEY}
                   CORS_ORIGINS: https://app.zentto.net,https://shell.zentto.net,http://localhost:3016
                   LOG_LEVEL: info
                   MAX_LAYOUT_BYTES: 51200
