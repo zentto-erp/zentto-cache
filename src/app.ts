@@ -3,6 +3,7 @@ import express from 'express';
 import pino from 'pino';
 import { requireClientKey } from './middleware/client-key.js';
 import gridLayoutsRouter from './routes/grid-layouts.js';
+import reportTemplatesRouter from './routes/report-templates.js';
 import { getRedis } from './redis.js';
 
 const logger = pino({
@@ -35,7 +36,7 @@ export function createApp() {
     res.json({
       name: '@zentto/cache',
       ok: true,
-      features: ['grid-layouts', 'redis', 'ttl'],
+      features: ['grid-layouts', 'report-templates', 'redis', 'ttl'],
       version: '0.1.0',
     });
   });
@@ -52,6 +53,7 @@ export function createApp() {
   });
 
   app.use('/v1/grid-layouts', requireClientKey, gridLayoutsRouter);
+  app.use('/v1/report-templates', requireClientKey, reportTemplatesRouter);
 
   app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     logger.error({ err: error }, 'request_failed');

@@ -10,3 +10,11 @@ export interface GridLayoutRecord {
   updatedAt: string;
   userKey: string;
 }
+
+export interface ReportTemplateRecord {
+  companyId: string;
+  userKey: string;
+  templateId: string;
+  template: Record<string, unknown>;
+  updatedAt: string;
+}
