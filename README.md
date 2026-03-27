@@ -34,3 +34,5 @@ npm run dev
 ```bash
 docker compose up -d --build
 ```
+
+El servicio queda expuesto localmente en `http://localhost:4101` y dentro del contenedor escucha en `4100`.
