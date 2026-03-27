@@ -1,0 +1,28 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: zentto-cache-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+
+  api:
+    build: .
+    container_name: zentto-cache
+    restart: unless-stopped
+    ports:
+      - "4100:4100"
+    depends_on:
+      - redis
+    environment:
+      PORT: ${PORT:-4100}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      TTL_DAYS: ${TTL_DAYS:-90}
+      CACHE_APP_KEY: ${CACHE_APP_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3016}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MAX_LAYOUT_BYTES: ${MAX_LAYOUT_BYTES:-51200}
+
+volumes:
+  redis_data:

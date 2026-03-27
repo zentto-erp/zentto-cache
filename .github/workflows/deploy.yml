@@ -1,0 +1,130 @@
+name: Deploy Zentto Cache
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-zentto-cache
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/zentto-erp/zentto-cache:latest
+
+      - name: Ensure Cloudflare DNS
+        env:
+          CF_API_EMAIL: ${{ secrets.CF_API_EMAIL }}
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+        run: |
+          RECORD_NAME="cache.zentto.net"
+          RECORD_IP="178.104.56.185"
+          RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=${RECORD_NAME}" \
+            -H "X-Auth-Email: ${CF_API_EMAIL}" \
+            -H "X-Auth-Key: ${CF_API_KEY}" \
+            -H "Content-Type: application/json" | jq -r '.result[0].id // empty')
+
+          if [ -n "$RECORD_ID" ]; then
+            curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${RECORD_ID}" \
+              -H "X-Auth-Email: ${CF_API_EMAIL}" \
+              -H "X-Auth-Key: ${CF_API_KEY}" \
+              -H "Content-Type: application/json" \
+              --data "{\"type\":\"A\",\"name\":\"${RECORD_NAME}\",\"content\":\"${RECORD_IP}\",\"ttl\":1,\"proxied\":true}"
+          else
+            curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
+              -H "X-Auth-Email: ${CF_API_EMAIL}" \
+              -H "X-Auth-Key: ${CF_API_KEY}" \
+              -H "Content-Type: application/json" \
+              --data "{\"type\":\"A\",\"name\":\"${RECORD_NAME}\",\"content\":\"${RECORD_IP}\",\"ttl\":1,\"proxied\":true}"
+          fi
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CACHE_APP_KEY: ${{ secrets.CACHE_APP_KEY }}
+          CERTBOT_EMAIL: ${{ secrets.CERTBOT_EMAIL }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: GITHUB_TOKEN,CACHE_APP_KEY,CERTBOT_EMAIL
+          script: |
+            set -e
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            mkdir -p /opt/zentto-cache
+            cat > /opt/zentto-cache/docker-compose.yml <<'EOF'
+            services:
+              redis:
+                image: redis:7-alpine
+                container_name: zentto-cache-redis
+                restart: unless-stopped
+                command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+                volumes:
+                  - redis_data:/data
+
+              api:
+                image: ghcr.io/zentto-erp/zentto-cache:latest
+                container_name: zentto-cache
+                restart: unless-stopped
+                depends_on:
+                  - redis
+                ports:
+                  - "4100:4100"
+                environment:
+                  PORT: 4100
+                  REDIS_URL: redis://redis:6379
+                  TTL_DAYS: 90
+                  CACHE_APP_KEY: ${CACHE_APP_KEY}
+                  CORS_ORIGINS: https://app.zentto.net,https://shell.zentto.net,http://localhost:3016
+                  LOG_LEVEL: info
+                  MAX_LAYOUT_BYTES: 51200
+            volumes:
+              redis_data:
+            EOF
+
+            docker compose -f /opt/zentto-cache/docker-compose.yml pull
+            docker compose -f /opt/zentto-cache/docker-compose.yml up -d
+
+            sudo tee /etc/nginx/sites-available/cache.zentto.net >/dev/null <<'EOF'
+            server {
+              listen 80;
+              server_name cache.zentto.net;
+
+              location / {
+                proxy_pass http://127.0.0.1:4100;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+              }
+            }
+            EOF
+
+            sudo ln -sf /etc/nginx/sites-available/cache.zentto.net /etc/nginx/sites-enabled/cache.zentto.net
+            sudo nginx -t
+            sudo systemctl reload nginx
+            sudo certbot --nginx -n --agree-tos -m "$CERTBOT_EMAIL" -d cache.zentto.net --redirect || true
