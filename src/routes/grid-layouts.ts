@@ -9,16 +9,24 @@ const maxLayoutBytes = Number(process.env.MAX_LAYOUT_BYTES || 50 * 1024);
 const ttlSeconds = Math.max(1, Number(process.env.TTL_DAYS || 90)) * 24 * 60 * 60;
 const keyIndexPrefix = 'zentto:grid-layout-index';
 
-const identitySchema = z.object({
+const identityBase = z.object({
   companyId: z.coerce.string().trim().min(1),
   email: z.string().trim().email().optional(),
   userId: z.coerce.string().trim().min(1).optional(),
 });
 
-const putBodySchema = identitySchema.extend({
+const identitySchema = identityBase.refine(
+  (data) => Boolean(data.userId || data.email),
+  { message: 'userId or email is required' },
+);
+
+const putBodySchema = identityBase.extend({
   gridId: z.string().trim().min(1),
   layout: z.record(z.any()),
-});
+}).refine(
+  (data) => Boolean(data.userId || data.email),
+  { message: 'userId or email is required' },
+);
 
 function normalizeUserKey(userId?: string, email?: string): string {
   const key = userId?.trim() || email?.trim().toLowerCase();

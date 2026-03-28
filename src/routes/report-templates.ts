@@ -11,20 +11,28 @@ const keyIndexPrefix = 'zentto:report-template-index';
 const keyPublicPrefix = 'zentto:report-template-public';
 const keyPublicIndexPrefix = 'zentto:report-template-public-index';
 
-const identitySchema = z.object({
+const identityBase = z.object({
   companyId: z.coerce.string().trim().min(1),
   email: z.string().trim().email().optional(),
   userId: z.coerce.string().trim().min(1).optional(),
 });
 
+const identitySchema = identityBase.refine(
+  (data) => Boolean(data.userId || data.email),
+  { message: 'userId or email is required' },
+);
+
 const companyOnlySchema = z.object({
   companyId: z.coerce.string().trim().min(1),
 });
 
-const putBodySchema = identitySchema.extend({
+const putBodySchema = identityBase.extend({
   templateId: z.string().trim().min(1),
   template: z.record(z.any()),
-});
+}).refine(
+  (data) => Boolean(data.userId || data.email),
+  { message: 'userId or email is required' },
+);
 
 const putPublicBodySchema = companyOnlySchema.extend({
   templateId: z.string().trim().min(1),
