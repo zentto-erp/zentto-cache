@@ -1,0 +1,78 @@
+name: Deploy Zentto Cache (Dev)
+
+on:
+  push:
+    branches: [developer]
+
+concurrency:
+  group: deploy-zentto-cache-dev
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/zentto-erp/zentto-cache:dev
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: GITHUB_TOKEN
+          script: |
+            set -e
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            mkdir -p /opt/zentto-cache-dev
+            cat > /opt/zentto-cache-dev/docker-compose.yml <<'EOF'
+            services:
+              redis:
+                image: redis:7-alpine
+                container_name: zentto-cache-redis-dev
+                restart: unless-stopped
+                command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+                volumes:
+                  - redis_data:/data
+
+              api:
+                image: ghcr.io/zentto-erp/zentto-cache:dev
+                container_name: zentto-cache-dev
+                restart: unless-stopped
+                depends_on:
+                  - redis
+                ports:
+                  - "4111:4100"
+                environment:
+                  PORT: 4100
+                  REDIS_URL: redis://redis:6379
+                  TTL_DAYS: 90
+                  CORS_ORIGINS: https://app.zentto.net,https://shell.zentto.net,http://localhost:3016
+                  LOG_LEVEL: info
+                  MAX_LAYOUT_BYTES: 51200
+            volumes:
+              redis_data:
+            EOF
+
+            docker compose -f /opt/zentto-cache-dev/docker-compose.yml pull
+            docker compose -f /opt/zentto-cache-dev/docker-compose.yml up -d
